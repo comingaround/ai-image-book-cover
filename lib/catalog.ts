@@ -1,13 +1,13 @@
 /**
- * Everything a customer can pick, as plain data — shared by the UI and the
- * server compose route so the two can never disagree about a slot's position.
- *
- * Cover art is authored at COVER_W × COVER_H (8×10 in at 150 px/in). The compose
- * route renders at `scale` × that for print (scale 2 = 300 dpi).
+ * Everything a customer can pick, as plain data shared by the browser and the
+ * server. Cover art is drawn on a COVER_W × COVER_H canvas (8×10 in at 150 dpi);
+ * print files are rendered at PRINT_SCALE × that (300 dpi).
  */
 
 export const COVER_W = 1200;
 export const COVER_H = 1500;
+export const PRINT_SCALE = 2;
+export const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
 
 export type FormatId = 'hardcover' | 'softcover';
 
@@ -19,10 +19,6 @@ export interface BookFormat {
   pages: number;
   trim: string;
   perks: string[];
-  /** Mockup geometry in px at the mockup's base width (see BookMockup). */
-  thickness: number;
-  /** Hardcover boards overhang the page block; softcover is cut flush. */
-  overhang: number;
 }
 
 export const FORMATS: BookFormat[] = [
@@ -34,8 +30,6 @@ export const FORMATS: BookFormat[] = [
     pages: 40,
     trim: '8 × 10 in',
     perks: ['Rigid laminated boards', 'Lay-flat premium paper', 'Built for 18 years of bedtime'],
-    thickness: 40,
-    overhang: 6,
   },
   {
     id: 'softcover',
@@ -45,23 +39,21 @@ export const FORMATS: BookFormat[] = [
     pages: 40,
     trim: '8 × 10 in',
     perks: ['Flexible matte cover', 'Perfect-bound spine', 'Ships in 3–5 days'],
-    thickness: 16,
-    overhang: 0,
   },
 ];
-
-export type SlotShape = 'circle' | 'arch' | 'rounded';
 
 export interface PhotoSlot {
   x: number;
   y: number;
   w: number;
   h: number;
-  shape: SlotShape;
+  shape: 'circle' | 'arch' | 'rounded';
 }
 
+export type TemplateId = 'little-star' | 'hello-world' | 'wild-one';
+
 export interface CoverTemplate {
-  id: string;
+  id: TemplateId;
   name: string;
   defaultTitle: string;
   bg: string;
@@ -69,6 +61,11 @@ export interface CoverTemplate {
   accent: string;
   spine: string;
   slot: PhotoSlot;
+  /** Baselines of the subtitle and the small line at the bottom. */
+  subtitleY: number;
+  footerY: number;
+  /** Slot background behind the placeholder baby. */
+  slotFill: string;
 }
 
 export const TEMPLATES: CoverTemplate[] = [
@@ -81,6 +78,9 @@ export const TEMPLATES: CoverTemplate[] = [
     accent: '#f4c96b',
     spine: '#18213b',
     slot: { x: 300, y: 380, w: 600, h: 600, shape: 'circle' },
+    subtitleY: 1200,
+    footerY: 1430,
+    slotFill: '#2c3a62',
   },
   {
     id: 'hello-world',
@@ -91,6 +91,9 @@ export const TEMPLATES: CoverTemplate[] = [
     accent: '#e88f7a',
     spine: '#e9b9aa',
     slot: { x: 330, y: 420, w: 540, h: 660, shape: 'arch' },
+    subtitleY: 1230,
+    footerY: 1410,
+    slotFill: '#fff6ef',
   },
   {
     id: 'wild-one',
@@ -101,6 +104,9 @@ export const TEMPLATES: CoverTemplate[] = [
     accent: '#7fa36f',
     spine: '#9fb892',
     slot: { x: 290, y: 400, w: 620, h: 620, shape: 'rounded' },
+    subtitleY: 1250,
+    footerY: 1410,
+    slotFill: '#fff6ef',
   },
 ];
 

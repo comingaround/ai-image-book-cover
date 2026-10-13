@@ -1,9 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
   cacheComponents: true,
-  // Cover fonts are read from disk by the compose route; make sure Vercel ships them with it.
+  // The compose route reads the cover fonts from disk; ship them with it.
   outputFileTracingIncludes: {
     '/api/compose': ['./public/fonts/**'],
   },

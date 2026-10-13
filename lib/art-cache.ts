@@ -1,18 +1,15 @@
 'use client';
 
 /**
- * Saved AI illustrations, in the visitor's own browser (IndexedDB — localStorage
- * caps at ~5 MB of text, one illustration is 1–2 MB of image). Keyed by a
- * fingerprint of the photo's bytes + the style, so the same photo in the same
- * style never pays for a second generation, even after closing the tab.
- *
- * Every call swallows its errors and acts as a miss: private windows, blocked
- * storage or a full disk must cost a generation, never break the page.
+ * Generated illustrations saved in the visitor's browser (IndexedDB, since
+ * localStorage only holds ~5 MB of text). Keyed by photo fingerprint + style, so
+ * the same photo in the same style is never generated twice. Storage errors
+ * count as a cache miss and never break the page.
  */
 
 const DB = 'baby-book';
 const STORE = 'art';
-const KEEP = 30; // newest entries kept; older ones are evicted
+const KEEP = 30; // most recently used entries kept
 
 interface Entry {
   key: string;
@@ -44,7 +41,7 @@ function run<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<
   );
 }
 
-/** SHA-256 of the file's bytes: the same photo re-uploaded gets the same key. */
+/** SHA-256 of the file's bytes, so re-uploading the same photo matches. */
 export async function fingerprint(file: Blob): Promise<string | null> {
   try {
     const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
@@ -74,6 +71,6 @@ export async function saveArt(key: string, blob: Blob): Promise<void> {
     const stale = all.sort((a, b) => b.usedAt - a.usedAt).slice(KEEP);
     await Promise.all(stale.map((e) => run('readwrite', (s) => s.delete(e.key))));
   } catch {
-    // Storage unavailable or full: the illustration still works, it just isn't saved.
+    // Storage unavailable or full: the illustration just isn't saved.
   }
 }

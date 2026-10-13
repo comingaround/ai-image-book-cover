@@ -2,26 +2,59 @@
 
 import { Fragment, useRef, useState, type CSSProperties } from 'react';
 
-import type { BookFormat } from '@/lib/catalog';
+import type { BookFormat, FormatId } from '@/lib/catalog';
 
 interface Props {
   coverSrc: string;
   format: BookFormat;
   spineColor: string;
   spineText?: string;
-  /** Rendered width of the front cover in px; everything else scales from it. */
+  /** Width of the front cover in px; everything else scales from it. */
   width?: number;
-  /** Starting rotation; drag to turn when `interactive`. */
+  /** Starting rotation in degrees; drag to turn when `interactive`. */
   angle?: number;
   interactive?: boolean;
 }
 
+/** Sizes below are in px for a 300 px wide cover. */
 const BASE_WIDTH = 300;
 
-/**
- * Pure-CSS 3D book. Hardcover: thick boards that overhang the page block, a
- * hinge groove and gloss. Softcover: thin, flush-cut, a scored crease, matte.
- */
+interface Finish {
+  thickness: number;
+  /** How far the boards stick out past the pages. */
+  overhang: number;
+  board: number;
+  /** Groove (hardcover) or score line (softcover) next to the spine. */
+  hinge: { left: number; width: number; shade: string };
+  coverShade: string;
+  spineShade: string;
+}
+
+const FINISHES: Record<FormatId, Finish> = {
+  hardcover: {
+    thickness: 40,
+    overhang: 6,
+    board: 3,
+    hinge: { left: 10, width: 7, shade: 'linear-gradient(90deg, rgba(0,0,0,.28), rgba(255,255,255,.25) 55%, rgba(0,0,0,.12))' },
+    coverShade:
+      'linear-gradient(90deg, rgba(0,0,0,.25) 0%, rgba(0,0,0,0) 6%), linear-gradient(115deg, rgba(255,255,255,.28) 0%, rgba(255,255,255,0) 35%, rgba(255,255,255,0) 70%, rgba(255,255,255,.12) 100%)',
+    spineShade: 'linear-gradient(90deg, rgba(0,0,0,.35), rgba(255,255,255,.14) 30%, rgba(255,255,255,.06) 60%, rgba(0,0,0,.3))',
+  },
+  softcover: {
+    thickness: 16,
+    overhang: 0,
+    board: 1,
+    hinge: { left: 7, width: 3, shade: 'linear-gradient(90deg, rgba(0,0,0,.14), rgba(255,255,255,.18))' },
+    coverShade: 'linear-gradient(90deg, rgba(0,0,0,.18) 0%, rgba(0,0,0,0) 4%), linear-gradient(115deg, rgba(255,255,255,.1), rgba(255,255,255,0) 40%)',
+    spineShade: 'linear-gradient(90deg, rgba(0,0,0,.2), rgba(255,255,255,.1) 50%, rgba(0,0,0,.2))',
+  },
+};
+
+/** Paper edge: fine page lines, darker toward the boards. */
+const pages = (deg: number) =>
+  `linear-gradient(${deg}deg, rgba(0,0,0,.18), transparent 18%, transparent 82%, rgba(0,0,0,.18)), repeating-linear-gradient(${deg}deg, #efe6d6 0 1.2px, #cfc3ad 1.2px 2px)`;
+
+/** A pure-CSS 3D book assembled from flat faces: two boards, a spine and a page block. */
 export default function BookMockup({
   coverSrc,
   format,
@@ -40,35 +73,29 @@ export default function BookMockup({
     setDragging(false);
   };
 
+  const f = FINISHES[format.id];
   const k = width / BASE_WIDTH;
-  const W = width;
-  const H = width * 1.25;
-  const T = format.thickness * k;
-  const hard = format.id === 'hardcover';
-  const inset = format.overhang * k; // how far the boards overhang the pages
-  const b = (hard ? 3 : 1) * k; // board thickness
+  const [W, H, T] = [width, width * 1.25, f.thickness * k];
+  const inset = f.overhang * k;
+  const b = f.board * k;
   const pd = T - 2 * b; // page-block depth
   const [hw, hh, ht] = [W / 2, H / 2, T / 2];
 
   /**
-   * One flat face of the book, centred on the book's centre, then rotated and
-   * moved into place: `at` is its centre in book space (x right, y down,
-   * z toward the viewer), `turn` the rotation that points it outward.
+   * One face of the book: a w×h rectangle whose centre is moved to `at`
+   * (x right, y down, z toward the viewer) and turned by `turn` to face outward.
    */
-  const plane = (w: number, h: number, at: [number, number, number], turn: string, style: CSSProperties = {}) => ({
-    position: 'absolute' as const,
+  const plane = (w: number, h: number, at: [number, number, number], turn: string, style: CSSProperties = {}): CSSProperties => ({
+    position: 'absolute',
     left: (W - w) / 2,
     top: (H - h) / 2,
     width: w,
     height: h,
-    backfaceVisibility: 'hidden' as const,
+    backfaceVisibility: 'hidden',
     transform: `translate3d(${at[0]}px, ${at[1]}px, ${at[2]}px) ${turn}`,
     ...style,
   });
 
-  // Paper: fine lines along the page edges, shaded where the boards overhang.
-  const pagesV = `linear-gradient(90deg, rgba(0,0,0,.18), transparent 18%, transparent 82%, rgba(0,0,0,.18)), repeating-linear-gradient(90deg, #efe6d6 0 1.2px, #cfc3ad 1.2px 2px)`;
-  const pagesH = `linear-gradient(0deg, rgba(0,0,0,.18), transparent 18%, transparent 82%, rgba(0,0,0,.18)), repeating-linear-gradient(0deg, #efe6d6 0 1.2px, #cfc3ad 1.2px 2px)`;
   const edge: CSSProperties = { background: spineColor, filter: 'brightness(.75)' };
   const recess: CSSProperties = { background: spineColor, filter: 'brightness(.5)' };
 
@@ -84,8 +111,7 @@ export default function BookMockup({
       }}
       onPointerMove={(e) => {
         if (!drag.current) return;
-        const next = drag.current.start + (e.clientX - drag.current.x) * 0.4;
-        setRot(Math.max(-45, Math.min(75, next)));
+        setRot(Math.max(-45, Math.min(75, drag.current.start + (e.clientX - drag.current.x) * 0.4)));
       }}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
@@ -111,39 +137,20 @@ export default function BookMockup({
         <div style={plane(W, H, [0, 0, ht], '', { overflow: 'hidden' })}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={coverSrc} alt="Book cover" draggable={false} className="h-full w-full object-cover" />
-          {/* hinge groove (hard) / score line (soft) */}
           <div
             className="pointer-events-none absolute inset-y-0"
-            style={{
-              left: hard ? 10 * k : 7 * k,
-              width: hard ? 7 * k : 3 * k,
-              background: hard
-                ? 'linear-gradient(90deg, rgba(0,0,0,.28), rgba(255,255,255,.25) 55%, rgba(0,0,0,.12))'
-                : 'linear-gradient(90deg, rgba(0,0,0,.14), rgba(255,255,255,.18))',
-            }}
+            style={{ left: f.hinge.left * k, width: f.hinge.width * k, background: f.hinge.shade }}
           />
-          {/* spine-side shading + gloss */}
-          <div
-            className="pointer-events-none absolute inset-0"
-            style={{
-              background: hard
-                ? 'linear-gradient(90deg, rgba(0,0,0,.25) 0%, rgba(0,0,0,0) 6%), linear-gradient(115deg, rgba(255,255,255,.28) 0%, rgba(255,255,255,0) 35%, rgba(255,255,255,0) 70%, rgba(255,255,255,.12) 100%)'
-                : 'linear-gradient(90deg, rgba(0,0,0,.18) 0%, rgba(0,0,0,0) 4%), linear-gradient(115deg, rgba(255,255,255,.1), rgba(255,255,255,0) 40%)',
-            }}
-          />
+          <div className="pointer-events-none absolute inset-0" style={{ background: f.coverShade }} />
         </div>
 
         {/* back cover */}
         <div style={plane(W, H, [0, 0, -ht], 'rotateY(180deg)', { background: spineColor })} />
 
-        {/* spine — straight, its roundness is only shading */}
+        {/* spine */}
         <div
           className="flex items-center justify-center overflow-hidden"
-          style={plane(T, H, [-hw, 0, 0], 'rotateY(-90deg)', {
-            background: hard
-              ? `linear-gradient(90deg, rgba(0,0,0,.35), rgba(255,255,255,.14) 30%, rgba(255,255,255,.06) 60%, rgba(0,0,0,.3)), ${spineColor}`
-              : `linear-gradient(90deg, rgba(0,0,0,.2), rgba(255,255,255,.1) 50%, rgba(0,0,0,.2)), ${spineColor}`,
-          })}
+          style={plane(T, H, [-hw, 0, 0], 'rotateY(-90deg)', { background: `${f.spineShade}, ${spineColor}` })}
         >
           {spineText && T > 18 && (
             <span
@@ -155,12 +162,12 @@ export default function BookMockup({
           )}
         </div>
 
-        {/* page block, set back from the board edges by `inset` */}
-        <div style={plane(pd, H - 2 * inset, [hw - inset, 0, 0], 'rotateY(90deg)', { background: pagesV })} />
-        <div style={plane(W - inset, pd, [-inset / 2, -hh + inset, 0], 'rotateX(90deg)', { background: pagesH })} />
-        <div style={plane(W - inset, pd, [-inset / 2, hh - inset, 0], 'rotateX(-90deg)', { background: pagesH })} />
+        {/* page block: fore-edge, top, bottom */}
+        <div style={plane(pd, H - 2 * inset, [hw - inset, 0, 0], 'rotateY(90deg)', { background: pages(90) })} />
+        <div style={plane(W - inset, pd, [-inset / 2, -hh + inset, 0], 'rotateX(90deg)', { background: pages(0) })} />
+        <div style={plane(W - inset, pd, [-inset / 2, hh - inset, 0], 'rotateX(-90deg)', { background: pages(0) })} />
 
-        {/* board edges: front and back board, on the fore-edge, top and bottom */}
+        {/* edges of the front and back boards */}
         {[ht - b / 2, -ht + b / 2].map((z) => (
           <Fragment key={z}>
             <div style={plane(b, H, [hw, 0, z], 'rotateY(90deg)', edge)} />
@@ -169,7 +176,7 @@ export default function BookMockup({
           </Fragment>
         ))}
 
-        {/* inside of the back board, seen through the overhang gap */}
+        {/* inside of the back board, visible where the boards overhang the pages */}
         {inset > 0 && (
           <>
             <div style={plane(inset, H, [hw - inset / 2, 0, -ht + b], '', recess)} />

@@ -1,4 +1,5 @@
 import Builder from "@/components/Builder";
+import { aiLive } from "@/lib/ai/stylize";
 
 export default function Home() {
   return (
@@ -9,7 +10,7 @@ export default function Home() {
           <span className="font-serif text-xl font-semibold">Little Chapters</span>
         </div>
         <span className="hidden rounded-full border border-line bg-white px-3 py-1 text-xs font-semibold text-muted sm:inline">
-          {process.env.AI_MODE === "live" ? "Prototype" : "Prototype · AI in placeholder mode"}
+          {aiLive() ? "Prototype" : "Prototype · AI in placeholder mode"}
         </span>
       </header>
 

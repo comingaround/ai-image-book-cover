@@ -1,18 +1,14 @@
 import 'server-only';
 
-const MAX_BYTES = 15 * 1024 * 1024;
+import { MAX_UPLOAD_BYTES } from './catalog';
+import { HttpError } from './http-error';
 
-/** The `photo` field as a Buffer, or a 400 Response explaining why not. */
-export async function readPhoto(form: FormData): Promise<Buffer | Response> {
+/** Reads the multipart body and returns it with the `photo` field as a Buffer. */
+export async function readUpload(req: Request): Promise<{ form: FormData; photo: Buffer }> {
+  const form = await req.formData();
   const file = form.get('photo');
-  if (!(file instanceof File) || file.size === 0) {
-    return Response.json({ error: 'No photo uploaded' }, { status: 400 });
-  }
-  if (file.size > MAX_BYTES) {
-    return Response.json({ error: 'Photo is larger than 15 MB' }, { status: 413 });
-  }
-  if (!file.type.startsWith('image/')) {
-    return Response.json({ error: 'That file is not an image' }, { status: 415 });
-  }
-  return Buffer.from(await file.arrayBuffer());
+  if (!(file instanceof File) || file.size === 0) throw new HttpError(400, 'No photo uploaded');
+  if (file.size > MAX_UPLOAD_BYTES) throw new HttpError(413, `Photo is larger than ${MAX_UPLOAD_BYTES >> 20} MB`);
+  if (!file.type.startsWith('image/')) throw new HttpError(415, 'That file is not an image');
+  return { form, photo: Buffer.from(await file.arrayBuffer()) };
 }

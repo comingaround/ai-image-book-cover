@@ -2,39 +2,28 @@ import 'server-only';
 
 import sharp from 'sharp';
 
-import type { StyleId } from '../catalog';
+import { getStyle, type StyleId } from '../catalog';
+import { takeAiSlot } from '../rate-limit';
 import { editImage } from './gemini';
 
-/**
- * Turning the uploaded photo into an illustration — the ONLY step that will cost
- * money. Everything else (cropping, masking, placing on the cover) is sharp.
- *
- * AI_MODE=live: `geminiStylize` sends the photo + STYLE_PROMPTS[style] to Nano
- * Banana (GEMINI_IMAGE_MODEL) and returns its image.
- * AI_MODE=placeholder: `placeholderStylize` fakes each style with plain filters
- * — free, for UI work.
- */
+/** AI_MODE=live calls Gemini; anything else uses free filter stand-ins for UI work. */
+export const aiLive = () => process.env.AI_MODE === 'live';
 
 /**
- * A style transfer, NOT a re-imagining. Deliberately names no subject ("baby",
- * "person"…): naming one makes the model redraw the photo AS that subject — an
- * adult came back as an invented baby. Whatever is in the photo stays as it is;
- * the cover script smart-crops afterwards, so layout is never touched here.
+ * Style transfer, not re-imagining: the prompts never name the subject, because
+ * naming one ("a baby") makes the model redraw the photo as that subject. The
+ * style itself is phrased as a hard requirement, otherwise the model keeps the
+ * photo nearly untouched.
  */
-const KEEP_EVERYTHING =
+const KEEP =
   'Keep the same composition, layout, framing and crop, with every subject in the same place, pose and expression ' +
   'and instantly recognisable. Do not add or remove anything. No text, letters, borders or watermarks.';
 
-/**
- * The style is the part that MUST change, so it leads and is spelled out. Asking
- * to keep the subject's "exact appearance" made the model treat repainting as a
- * change it wasn't allowed to make — watercolor/storybook came back as photos.
- */
 const restyle = (style: string, look: string) =>
   `Transform this image into a ${style}. Repaint every part of it by hand: ${look}. ` +
-  `It must not look like a photo anywhere. ${KEEP_EVERYTHING}`;
+  `It must not look like a photo anywhere. ${KEEP}`;
 
-export const STYLE_PROMPTS: Record<Exclude<StyleId, 'original'>, string> = {
+const PROMPTS: Partial<Record<StyleId, string>> = {
   watercolor: restyle(
     "hand-painted watercolor illustration from a children's book",
     'loose transparent watercolor washes, soft bleeding edges, pigment pooling, visible paper grain, simplified detail'
@@ -49,50 +38,41 @@ export const STYLE_PROMPTS: Record<Exclude<StyleId, 'original'>, string> = {
   ),
 };
 
-export interface StylizeResult {
-  image: Buffer;
-  placeholder: boolean;
+/** EXIF-rotated and no larger than `max` px on its longest side. */
+const upright = (photo: Buffer, max: number) =>
+  sharp(photo).rotate().resize(max, max, { fit: 'inside', withoutEnlargement: true });
+
+export async function stylize(photo: Buffer, styleId: StyleId): Promise<{ image: Buffer; placeholder: boolean }> {
+  const prompt = PROMPTS[styleId];
+  if (!getStyle(styleId).usesAi || !prompt) {
+    // Even unstyled, downscale: the cover slot needs at most ~1300 px at print size.
+    return { image: await upright(photo, 1600).png().toBuffer(), placeholder: false };
+  }
+  if (!aiLive()) return { image: await placeholderStylize(photo, styleId), placeholder: true };
+
+  await takeAiSlot();
+  const input = await upright(photo, 1536).jpeg({ quality: 90 }).toBuffer();
+  const out = await editImage(input, 'image/jpeg', prompt);
+  return { image: await sharp(out).png().toBuffer(), placeholder: false };
 }
 
-export async function stylize(photo: Buffer, style: StyleId, oidcToken?: string): Promise<StylizeResult> {
-  if (style === 'original') {
-    return { image: await sharp(photo).rotate().png().toBuffer(), placeholder: false };
-  }
-  if (process.env.AI_MODE === 'live') {
-    return { image: await geminiStylize(photo, style, oidcToken), placeholder: false };
-  }
-  return { image: await placeholderStylize(photo, style), placeholder: true };
-}
+/** Rough filter imitations of each style, good enough to judge the layout. */
+async function placeholderStylize(photo: Buffer, styleId: StyleId): Promise<Buffer> {
+  const base = upright(photo, 1024);
+  await new Promise((r) => setTimeout(r, 1200)); // simulate the model's wait
 
-/** Filter-based stand-ins, deliberately close enough to judge the layout. */
-async function placeholderStylize(photo: Buffer, style: Exclude<StyleId, 'original'>): Promise<Buffer> {
-  const base = sharp(photo).rotate().resize(1024, 1024, { fit: 'inside', withoutEnlargement: true });
-  await new Promise((r) => setTimeout(r, 1200)); // feel the wait the real model will have
-
-  if (style === 'sketch') {
+  if (styleId === 'sketch') {
     const grey = await base.greyscale().toBuffer();
     return sharp(grey)
-      .convolve({ width: 3, height: 3, kernel: [-1, -1, -1, -1, 8, -1, -1, -1, -1] })
+      .convolve({ width: 3, height: 3, kernel: [-1, -1, -1, -1, 8, -1, -1, -1, -1] }) // edge detection
       .negate()
       .normalise()
       .gamma(2.2)
       .png()
       .toBuffer();
   }
-  if (style === 'watercolor') {
+  if (styleId === 'watercolor') {
     return base.median(9).modulate({ saturation: 1.25, brightness: 1.08 }).blur(1.2).png().toBuffer();
   }
   return base.median(5).modulate({ saturation: 1.45, brightness: 1.03 }).linear(1.12, -10).png().toBuffer();
-}
-
-/** The real thing: Nano Banana repaints the photo, we normalise it to PNG. */
-async function geminiStylize(photo: Buffer, style: Exclude<StyleId, 'original'>, oidcToken?: string): Promise<Buffer> {
-  // Upright, ≤1536 px JPEG: phone photos are 4–12 MB and the model gains nothing from more pixels.
-  const input = await sharp(photo)
-    .rotate()
-    .resize(1536, 1536, { fit: 'inside', withoutEnlargement: true })
-    .jpeg({ quality: 90 })
-    .toBuffer();
-  const out = await editImage(input, 'image/jpeg', STYLE_PROMPTS[style], oidcToken);
-  return sharp(out).png().toBuffer();
 }

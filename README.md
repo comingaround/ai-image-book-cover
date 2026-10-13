@@ -1,45 +1,48 @@
-# baby-book-thing — "Little Chapters" prototype
+# AI image book cover
 
-Customer flow: **pick a book (hardcover / softcover) → pick a cover design → upload a baby photo → pick a style → see the baby on the cover**, shown on a 3D book mockup.
+A personalised storybook cover builder. Customers pick a hardcover or softcover book and a cover design, upload a photo, choose an illustration style, and see the result on an interactive 3D book mockup.
+
+Built with Next.js (App Router), React, Tailwind CSS, [sharp](https://sharp.pixelplumbing.com/) and Google's Gemini image model (Nano Banana).
 
 ```bash
 npm install
-npm run dev        # http://localhost:3000
+cp .env.example .env.local   # then fill in one auth option
+npm run dev                  # http://localhost:3000
 ```
 
-## How the cover is made
+## How a cover is made
 
-| Step | Who does it | Cost |
+| Step | Done by | Cost |
 |---|---|---|
-| Photo → illustration (watercolor / storybook / sketch) | **AI (Nano Banana)**: `lib/ai/stylize.ts` | paid, **once per photo + style** |
-| Smart-crop to the face, mask to the slot shape, stack under frame + title | **sharp script**: `lib/compose.ts` | free |
-| Live previews & thumbnails in the browser | same SVG layers: `lib/cover-svg.ts` | free |
+| Photo → watercolor / storybook / pencil-sketch illustration | Gemini image model, `lib/ai/stylize.ts` | paid, once per photo + style |
+| Crop toward the face, cut to the frame shape, add background, frame and title | sharp, `lib/compose.ts` | free |
+| Instant previews and template thumbnails | the same SVG layers in the browser, `lib/cover-svg.ts` | free |
 
-Changing the design, title or name re-runs only the free sharp step. The AI never runs again for those changes.
-"Original photo" style skips the AI entirely.
+The AI only restyles the photo. Placing it on the cover is plain image processing, so changing the design, title or name never calls the AI again. Generated illustrations are also saved in the browser (IndexedDB), so the same photo and style are never generated twice. "Original photo" skips the AI entirely.
 
-## Where things live
+## Project layout
 
-- `lib/catalog.ts`: formats, prices, cover templates (photo slot position/shape), styles
-- `lib/cover-svg.ts`: cover art as SVG layers (background / mask / overlay), shared by browser + server
-- `lib/compose.ts`: sharp compositing (1200×1500 preview, 2400×3000 = 8×10 in @ 300 dpi print)
-- `lib/ai/stylize.ts`: style prompts (`STYLE_PROMPTS`, shared `FRAMING`) + placeholder filters
-- `lib/ai/gemini.ts`: Nano Banana client (AI Studio key or Vertex/ADC), retries 429/5xx, customer-safe errors
-- `app/api/stylize`, `app/api/compose`: POST multipart endpoints
-- `components/BookMockup.tsx`: pure-CSS 3D book (hardcover = thick boards + overhang, softcover = thin + flush)
+- `lib/catalog.ts`: book formats, cover templates (photo slot, colours, text positions) and styles
+- `lib/cover-svg.ts`: cover artwork as SVG layers, with text drawn as glyph outlines from bundled fonts so it renders identically on any server
+- `lib/compose.ts`: sharp compositing at preview (1200×1500) or print size (2400×3000, 8×10 in at 300 dpi)
+- `lib/ai/stylize.ts`: style prompts and free placeholder filters
+- `lib/ai/gemini.ts`: Gemini client with three auth options and retries while capacity is busy
+- `lib/art-cache.ts`: browser-side cache of generated illustrations
+- `lib/rate-limit.ts`: per-visitor limit on paid AI calls
+- `app/api/stylize`, `app/api/compose`: the two POST endpoints
+- `components/Builder.tsx`: the step-by-step UI; `components/BookMockup.tsx`: the CSS 3D book
 
-## Env (`.env.local`, see `.env.example`)
+## Configuration
 
-- `AI_MODE=live | placeholder`: `placeholder` = free filter fakes for UI work
-- `GEMINI_IMAGE_MODEL` (default `gemini-3-pro-image`, Nano Banana Pro). `gemini-2.5-flash-image` is ~3× cheaper but, when told to keep the layout, barely changes the style
-- Auth: `GEMINI_API_KEY` (AI Studio, wins if set) **or** `VERTEX_PROJECT_ID` + `VERTEX_LOCATION=global` + `VERTEX_USE_ADC=1` (local `gcloud auth application-default login`)
+See `.env.example`.
 
-Measured on Pro: ~20 s per illustration, ~660 input + 1,120 output image tokens (the server log prints usage per call). Pro's shared capacity throttles often (HTTP 429); the client retries up to 5 times over ~50 s.
+- `AI_MODE`: `live` calls Gemini; `placeholder` uses free filter imitations for UI work
+- `GEMINI_IMAGE_MODEL`: defaults to `gemini-3-pro-image`. The cheaper `gemini-2.5-flash-image` barely changes the style when asked to keep the layout
+- Auth, first configured wins:
+  - `GEMINI_API_KEY` (Google AI Studio)
+  - Vertex AI keyless sign-in on Vercel: `VERTEX_PROJECT_ID` + `VERTEX_WORKLOAD_AUDIENCE` + `VERTEX_SERVICE_ACCOUNT_EMAIL`
+  - Vertex AI locally: `VERTEX_PROJECT_ID` + `VERTEX_USE_ADC=1` (uses `gcloud auth application-default login`)
 
-## Known TODOs
+## Not included
 
-- Deploy auth: ADC only works locally. Use `GEMINI_API_KEY` (or a service account) on Vercel
-- Rate limiting per visitor before going public (each click is a paid call)
-- Cover text uses system fonts via librsvg. Before deploying to Linux/Vercel, bundle a TTF and render the text with it
-- Mobile: the live preview sits below the steps. Add a compact sticky preview
-- Checkout / cart is a stub
+Checkout is a placeholder, and the rate limit is in-memory per server instance (a shared store such as Redis would be needed for a real quota).
