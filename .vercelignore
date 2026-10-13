@@ -4,3 +4,5 @@ vercel-production.env
 .next
 node_modules
 *.tsbuildinfo
+/docs/
+/CLAUDE.md

@@ -43,3 +43,7 @@ next-env.d.ts
 
 # real deployment values (project IDs, service account) — local only
 vercel-production.env
+
+# internal docs and agent notes (real infrastructure IDs) — local only
+/docs/
+/CLAUDE.md
