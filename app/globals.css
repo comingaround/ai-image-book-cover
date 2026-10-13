@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+:root {
+  --cream: #fbf6ee;
+  --paper: #fffdf9;
+  --ink: #3b2f2a;
+  --muted: #8a7b72;
+  --line: #eadfd2;
+  --brand: #e2735e;
+  --brand-ink: #ffffff;
+}
+
+@theme inline {
+  --color-cream: var(--cream);
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-brand: var(--brand);
+  --font-sans: var(--font-body);
+  --font-serif: var(--font-display);
+}
+
+body {
+  background: var(--cream);
+  color: var(--ink);
+}
+
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+.input {
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 2px solid var(--line);
+  background: var(--paper);
+  padding: 0.6rem 0.85rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.input:focus {
+  border-color: var(--brand);
+}
