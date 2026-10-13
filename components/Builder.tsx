@@ -3,7 +3,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import BookMockup from '@/components/BookMockup';
-import { artKey, fingerprint, loadArt, saveArt } from '@/lib/art-cache';
+import { artKey, deleteArt, fingerprint, listArt, loadArt, saveArt, type SavedArt } from '@/lib/art-cache';
 import {
   COVER_H,
   COVER_W,
@@ -36,6 +36,15 @@ interface Art {
   placeholder: boolean;
   /** Restored from the browser's saved illustrations rather than generated. */
   saved?: boolean;
+  /** Its key in the saved illustrations, if it's stored there. */
+  key?: string | null;
+}
+
+interface SavedThumb {
+  key: string;
+  blob: Blob;
+  url: string;
+  style: StyleId;
 }
 
 /** A downscaled data URL; SVG drawn through <img> can't load blob: URLs, so previews embed the photo. */
@@ -64,6 +73,11 @@ async function postImage(url: string, fields: Record<string, string | Blob>, sig
   return { blob: await res.blob(), placeholder: res.headers.get('x-placeholder') === '1' };
 }
 
+const toThumbs = (entries: SavedArt[]): SavedThumb[] =>
+  entries
+    .filter((e) => STYLES.some((st) => st.id === e.style))
+    .map((e) => ({ key: e.key, blob: e.blob, url: URL.createObjectURL(e.blob), style: e.style as StyleId }));
+
 const choiceClass = (selected: boolean) =>
   selected ? 'border-brand bg-white shadow-md' : 'border-line bg-paper hover:border-brand/50';
 
@@ -79,6 +93,7 @@ export default function Builder() {
   const [phase, setPhase] = useState<'stylizing' | 'composing' | null>(null);
   const [error, setError] = useState<string>();
   const [dragOver, setDragOver] = useState(false);
+  const [saved, setSaved] = useState<SavedThumb[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
   const fonts = useCoverFonts();
 
@@ -110,6 +125,32 @@ export default function Builder() {
 
   const showArt = (blob: Blob, extra: Omit<Art, 'blob' | 'url'>) => setArt({ blob, url: URL.createObjectURL(blob), ...extra });
 
+  const refreshSaved = () => listArt().then((entries) => setSaved(toThumbs(entries)));
+
+  useEffect(() => {
+    let live = true;
+    listArt().then((entries) => live && setSaved(toThumbs(entries)));
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  // Free the thumbnails' object URLs whenever the list is rebuilt.
+  useEffect(() => () => saved.forEach((t) => URL.revokeObjectURL(t.url)), [saved]);
+
+  /** Puts a saved illustration on the cover; no photo or AI call needed. */
+  function applySaved(t: SavedThumb) {
+    setError(undefined);
+    setPhase(null);
+    setStyleId(t.style);
+    showArt(t.blob, { placeholder: false, saved: true, key: t.key });
+  }
+
+  async function removeSaved(key: string) {
+    await deleteArt(key);
+    await refreshSaved();
+  }
+
   // Free each illustration's object URL once it's replaced.
   useEffect(() => () => {
     if (art) URL.revokeObjectURL(art.url);
@@ -132,7 +173,7 @@ export default function Builder() {
     if (!savedKey) return;
     let cancelled = false;
     loadArt(savedKey).then((blob) => {
-      if (blob && !cancelled) setArt((cur) => cur ?? { blob, url: URL.createObjectURL(blob), placeholder: false, saved: true });
+      if (blob && !cancelled) setArt((cur) => cur ?? { blob, url: URL.createObjectURL(blob), placeholder: false, saved: true, key: savedKey });
     });
     return () => {
       cancelled = true;
@@ -145,13 +186,14 @@ export default function Builder() {
     setError(undefined);
     if (savedKey && !fresh) {
       const blob = await loadArt(savedKey);
-      if (blob) return showArt(blob, { placeholder: false, saved: true });
+      if (blob) return showArt(blob, { placeholder: false, saved: true, key: savedKey });
     }
     setPhase('stylizing');
     try {
       const { blob, placeholder } = await postImage('/api/stylize', { photo: photo.file, style: styleId });
-      showArt(blob, { placeholder });
-      if (savedKey && !placeholder) void saveArt(savedKey, blob); // fakes must never shadow real art
+      const key = placeholder ? null : savedKey; // fakes must never shadow real art
+      showArt(blob, { placeholder, key });
+      if (key) void saveArt(key, blob).then(refreshSaved);
     } catch (e) {
       setError((e as Error).message);
       setPhase(null);
@@ -198,7 +240,7 @@ export default function Builder() {
   }
 
   function buttonLabel() {
-    if (!photo) return 'Upload a photo to continue';
+    if (!photo) return art ? 'Upload a photo to make a new one' : 'Upload a photo to continue';
     if (phase === 'stylizing') return style.usesAi ? `Illustrating in ${style.name.toLowerCase()}…` : 'Preparing your photo…';
     if (phase === 'composing') return 'Placing it on your cover…';
     if (art) return 'Generate again';
@@ -366,6 +408,37 @@ export default function Builder() {
                     AI placeholder — filter preview, Nano Banana comes next
                   </span>
                 )}
+              </div>
+            </div>
+          )}
+
+          {saved.length > 0 && (
+            <div className="mt-6">
+              <div className="mb-2 flex items-baseline justify-between">
+                <h3 className="text-sm font-semibold">Your illustrations</h3>
+                <span className="text-xs text-muted">Saved in this browser · click to use, no AI needed</span>
+              </div>
+              <div className="-mx-2 flex gap-3 overflow-x-auto px-2 pt-2 pb-2">
+                {saved.map((t) => (
+                  <div key={t.key} className="group relative shrink-0">
+                    <button
+                      onClick={() => applySaved(t)}
+                      title={`Use this ${getStyle(t.style).name.toLowerCase()} illustration`}
+                      className={`block overflow-hidden rounded-xl border-2 transition ${choiceClass(art?.key === t.key)}`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={t.url} alt="" className="h-20 w-20 object-cover" />
+                      <span className="block px-1.5 py-1 text-[11px] font-semibold">{getStyle(t.style).name}</span>
+                    </button>
+                    <button
+                      onClick={() => removeSaved(t.key)}
+                      aria-label="Delete this illustration"
+                      className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-ink text-xs text-white opacity-0 shadow transition group-hover:opacity-100 focus:opacity-100"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
           )}

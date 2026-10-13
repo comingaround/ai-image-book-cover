@@ -74,3 +74,30 @@ export async function saveArt(key: string, blob: Blob): Promise<void> {
     // Storage unavailable or full: the illustration just isn't saved.
   }
 }
+
+export interface SavedArt {
+  key: string;
+  blob: Blob;
+  style: string;
+  usedAt: number;
+}
+
+/** Every saved illustration, most recently used first. */
+export async function listArt(): Promise<SavedArt[]> {
+  try {
+    const all = await run<Entry[]>('readonly', (s) => s.getAll());
+    return all
+      .sort((a, b) => b.usedAt - a.usedAt)
+      .map(({ key, blob, usedAt }) => ({ key, blob, usedAt, style: key.split(':')[1] ?? '' }));
+  } catch {
+    return [];
+  }
+}
+
+export async function deleteArt(key: string): Promise<void> {
+  try {
+    await run('readwrite', (s) => s.delete(key));
+  } catch {
+    // Nothing to delete if storage is unavailable.
+  }
+}
