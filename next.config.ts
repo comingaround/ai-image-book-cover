@@ -7,6 +7,10 @@ const nextConfig: NextConfig = {
     '/api/compose': ['./public/fonts/**'],
   },
   partialPrefetching: true,
+  experimental: {
+    // Set by `next upgrade --agent=security` (16.4.0 → 16.4.3).
+    agentUpgrade: 'security',
+  },
   turbopack: {
     rules: {
       "*.css": {
